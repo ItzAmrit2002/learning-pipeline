@@ -46,19 +46,19 @@ jobs:
             sudo systemctl enable nginx
             sudo systemctl start nginx
 
-            # Configure Nginx as a reverse proxy
+            # Configure Nginx as a reverse proxy with the correct settings
             sudo bash -c 'cat > /etc/nginx/sites-available/default <<EOF
             server {
                 listen 80;
                 server_name _;
-                
+
                 location / {
                     proxy_pass http://localhost:3000;  # Update port if needed
                     proxy_http_version 1.1;
-                    proxy_set_header Upgrade $http_upgrade;
+                    proxy_set_header Upgrade \$http_upgrade;
                     proxy_set_header Connection "Upgrade";
-                    proxy_set_header Host $host;
-                    proxy_cache_bypass $http_upgrade;
+                    proxy_set_header Host \$host;
+                    proxy_cache_bypass \$http_upgrade;
                 }
             }
             EOF'
