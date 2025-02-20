@@ -1,0 +1,86 @@
+name: Push-to-EC2 instance
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Push to EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the code
+        uses: actions/checkout@v2
+
+      - name: Deploy to my EC2 instance
+        uses: easingthemes/ssh-deploy@v2.1.5
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
+          SOURCE: "./"
+          REMOTE_HOST: ${{ secrets.HOST_DNS }}
+          REMOTE_USER: ${{ secrets.USERNAME }}
+          TARGET: ${{ secrets.TARGET_DIR }}
+
+      - name: Executing remote ssh commands using ssh key
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST_DNS }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # Update system packages
+            sudo apt update -y
+            sudo apt upgrade -y
+            
+            # Install Node.js (latest LTS) and npm
+            curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+            sudo apt install -y nodejs
+            
+            # Install PM2 globally to keep the app running
+            sudo npm install -g pm2
+
+            # Install Nginx
+            sudo apt install -y nginx
+            sudo systemctl enable nginx
+            sudo systemctl start nginx
+
+            # Configure Nginx as a reverse proxy
+            sudo bash -c 'cat > /etc/nginx/sites-available/default <<EOF
+            server {
+                listen 80;
+                server_name _;
+                
+                location / {
+                    proxy_pass http://localhost:3000;  # Update port if needed
+                    proxy_http_version 1.1;
+                    proxy_set_header Upgrade $http_upgrade;
+                    proxy_set_header Connection "Upgrade";
+                    proxy_set_header Host $host;
+                    proxy_cache_bypass $http_upgrade;
+                }
+            }
+            EOF'
+
+            # Restart Nginx to apply changes
+            sudo systemctl restart nginx
+
+            # Navigate to project directory
+            cd ${{ secrets.TARGET_DIR }}
+
+            # Install project dependencies
+            npm install
+
+            # Build the project (if applicable)
+            npm run build
+
+            # Stop any existing app running on PM2
+            pm2 delete all || true
+
+            # Start the application with PM2
+            pm2 start npm --name "my-app" -- start
+
+            # Ensure PM2 restarts on system reboot
+            pm2 save
+            pm2 startup systemd | sudo tee /etc/systemd/system/pm2.service
